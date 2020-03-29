@@ -1,0 +1,613 @@
+#!/bin/python
+# -*- coding: utf-8 -*-
+import ConfigParser
+import subprocess
+import time
+import textwrap
+
+
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+wadparts=[]
+
+for section in Config.sections():
+  if section != 'main' and Config.get(section,'enabled')==str(1):
+    try:
+      wadparts.append(getattr(__import__('get_'+section, fromlist=[section]),section))
+    except ImportError:
+      raise ImportError('Failed to load '+section)
+
+count = 1
+
+
+
+# key to getting text to speech
+head = Config.get('main','head')+" "
+tail = Config.get('main','tail')
+
+
+# Turn all of the parts into a single string
+wad = (''.join(str(x) for x in wadparts) + Config.get('main','end'))
+
+if Config.get('main','debug') == str(1):
+  print wad
+#raise Exception(wad)
+
+
+if Config.get('main','readaloud') == str(1):
+  # strip any quotation marks
+  wad = wad.replace('"', '').replace("'",'').strip()
+
+  if Config.get('main','trygoogle') == str(1):
+    # Google voice only accepts 100 characters or less, so split into chunks
+    shorts = []
+    for chunk in wad.split('.  '):
+      shorts.extend(textwrap.wrap(chunk, 100))
+
+
+    # Send shorts to Google and return mp3s
+    try:
+      for sentence in shorts:
+        sendthis = sentence.join(['"http://translate.google.com/translate_tts?tl=en&q=', '" -O /mnt/ram/'])
+        print(head + sendthis + str(count).zfill(2) + str(tail))
+        print subprocess.check_output (head + sendthis + str(count).zfill(2) + str(tail), shell=True)
+        count = count + 1
+      
+
+      print subprocess.call ('python lighton.py', shell=True)
+      # Play the mp3s returned
+      print subprocess.call ('mpg123 -h 10 -d 11 /mnt/ram/*.mp3', shell=True)
+
+    # festival is now called in case of error reaching Google
+    except subprocess.CalledProcessError:
+      print subprocess.check_output("echo " + wad + " | festival --tts ", shell=True)
+  
+    # Cleanup any mp3 files created in this directory.
+    print 'cleaning up now'
+    print subprocess.call ('rm /mnt/ram/*.mp3', shell=True)
+  else:
+    print subprocess.check_output("echo " + wad + " | festival --tts ", shell=True)
+else:
+  print wad
+
+time.sleep(10) 
+print subprocess.call ('python lightoff.py', shell=True)
+#!/usr/bin/python
+
+# Import required Python libraries
+import RPi.GPIO as GPIO
+import time
+
+# Use BCM GPIO references instead of physical pin numbers
+#GPIO.setmode(GPIO.BCM)
+GPIO.setmode(GPIO.BOARD)
+
+# init list with pin numbers
+
+pinList = [12]
+
+# loop through pins and set mode and state to 'low'
+
+for i in pinList: 
+    GPIO.setwarnings(False)
+    GPIO.setup(i, GPIO.OUT) 
+    GPIO.output(i, GPIO.HIGH)
+
+def trigger() :
+        for i in pinList:
+#         GPIO.output(i, GPIO.LOW)
+#          time.sleep(5) 
+          GPIO.output(i, GPIO.HIGH)
+#         GPIO.cleanup()
+          break
+     
+
+try: 
+    trigger()
+         
+      
+except KeyboardInterrupt:
+  print "  Quit" 
+  # Reset GPIO settings
+  GPIO.cleanup()
+#!/usr/bin/python
+
+# Import required Python libraries
+import RPi.GPIO as GPIO
+import time
+
+# Use BCM GPIO references instead of physical pin numbers
+#GPIO.setmode(GPIO.BCM)
+GPIO.setmode(GPIO.BOARD)
+
+# init list with pin numbers
+
+pinList = [12]
+
+# loop through pins and set mode and state to 'low'
+
+for i in pinList: 
+    GPIO.setup(i, GPIO.OUT) 
+    GPIO.output(i, GPIO.HIGH)
+
+def trigger() :
+        for i in pinList:
+          GPIO.output(i, GPIO.LOW)
+#          time.sleep(5) 
+#          GPIO.output(i, GPIO.HIGH)
+#         GPIO.cleanup()
+          break
+     
+
+try: 
+    trigger()
+         
+      
+except KeyboardInterrupt:
+  print "  Quit" 
+  # Reset GPIO settings
+  GPIO.cleanup()
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib
+import urllib2
+import json
+import decimal
+import ConfigParser
+import time
+
+Config=ConfigParser.ConfigParser()
+try:
+    Config.read('alarm.config')
+except:
+    raise Exception('Sorry, Failed reading alarm.config file.')
+
+location = Config.get('weather_yahoo','location')
+if Config.get('weather_yahoo','metric') == str(1):
+    metric = '%20and%20u%3D\'c\''
+else:
+    metric = ''
+
+try:
+    weather_api = urllib.urlopen("https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20weather.forecast%20where%20woeid%3D" + location + metric + "&format=json")
+    response = weather_api.read()
+    response_dictionary = json.loads(response)
+
+    current = response_dictionary['query']['results']['channel']['item']['condition']['temp']
+    current_low = response_dictionary['query']['results']['channel']['item']['forecast'][0]['low']
+    current_high = response_dictionary['query']['results']['channel']['item']['forecast'][0]['high']
+    conditions = response_dictionary['query']['results']['channel']['item']['condition']['text']
+    wind = response_dictionary['query']['results']['channel']['wind']['speed']
+    wind_chill = response_dictionary['query']['results']['channel']['wind']['chill']
+    sunrise = response_dictionary['query']['results']['channel']['astronomy']['sunrise']
+    sunset = response_dictionary['query']['results']['channel']['astronomy']['sunset']
+
+
+    wind = round(float(wind),1)
+
+#    print current
+#    print current_low
+#    print current_high
+#    print conditions
+#    print wind
+
+    # reads current weather
+    weather_yahoo = 'Weather for today is ' + str(conditions) + ' with a current temperature of ' + str(current) + ' with a low of ' + str(current_low) + ' and a high of ' + str(current_high) + '.  '
+
+    if Config.get('weather_yahoo','metric') == str(1) and Config.get('weather_yahoo','wind') == str(1):
+        if wind < 1:
+            gust = 'no wind and calm'
+        if wind > 1:
+            gust = 'Light Air'
+        if wind > 5:
+            gust = 'a light breeze'
+        if wind > 12:
+            gust = 'a gentle breeze'
+        if wind > 20:
+            gust = 'a moderate breeze'
+        if wind > 29:
+            gust = 'a fresh breeze'
+        if wind > 39:
+            gust = 'a strong breeze'
+        if wind > 50:
+            gust = 'High winds at ' + wind + 'kilometres per hour'
+        if wind > 62:
+            gust = 'Gale force winds at ' + wind + 'kilometres per hour'
+        if wind > 75:
+            gust = 'a strong gale at ' + wind + 'kilometres per hour'
+        if wind > 89:
+            gust = 'Storm winds at ' + wind + 'kilometres per hour'
+        if wind > 103:
+            gust = 'Violent storm winds at ' + wind + 'kilometres per hour'
+        if wind > 118:
+            gust = 'Hurricane force winds at ' + wind + 'kilometres per hour'
+        weather_yahoo = weather_yahoo + 'With ' + str(gust) + '.  '
+
+    if Config.get('weather_yahoo','wind_chill') == str(1) and int(time.strftime("%m")) < 4 or int(time.strftime("%m")) > 10:
+        weather_yahoo = weather_yahoo + ' And a windchill of ' + str(wind_chill) + '.  '
+
+except Exception:
+    weather_yahoo = 'Failed to connect to Yahoo Weather.  '
+
+if Config.get('main','debug') == str(1):
+  print weather_yahoo
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib2
+import json
+import decimal
+import ConfigParser
+import better_spoken_numbers as bsn
+from math import floor
+
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+tickers=Config.get('stocks','tickers').split(',')
+
+stocks='Stock update: '
+
+for ticker in tickers:
+  try: 
+    api = urllib2.urlopen('http://finance.yahoo.com/webservice/v1/symbols/'+ticker+'/quote?format=json', timeout=4)
+    response = api.read()
+    response_dictionary = json.loads(response)
+    stock_name = response_dictionary['list']['resources'][0]['resource']['fields']['name'].replace("Common Stock", '').replace(' Inc','').replace(',','').replace('.','').replace('(NS) O','')
+
+    # get the price
+    stock_price = response_dictionary['list']['resources'][0]['resource']['fields']['price']
+    # trim it to something sane
+    stock_price = round(decimal.Decimal(stock_price),2)
+
+    whole_price = floor(stock_price)
+    decimal_price = floor((stock_price - whole_price)*100)
+    stock_price = bsn.n2w(int(whole_price)) + ' dollars'
+    if decimal_price > 0:
+      stock_price += ' and ' + bsn.n2w(int(decimal_price)) + ' cents'
+    
+    stocks += stock_name + ' is trading at ' + stock_price + '.  '
+    
+  except Exception:
+    stocks = 'Failed to connect to Yahoo Finance.  '
+
+if Config.get('main','debug') == str(1):
+  print stocks
+#!/usr/bin/env python
+
+import feedparser
+import ConfigParser
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+try: 
+    rss = feedparser.parse('http://feeds.bbci.co.uk/news/world/rss.xml')
+
+
+#for entry in rss.entries[:4]:
+#    print entry['title']
+#    print entry['description']
+#    
+#print rss.entries[0]['title']
+#print rss.entries[0]['description']
+#print rss.entries[1]['title']
+#print rss.entries[1]['description']
+#print rss.entries[2]['title']
+#print rss.entries[2]['description']
+#print rss.entries[3]['title']
+#print rss.entries[3]['description']
+
+    newsfeed = rss.entries[0]['title'] + '.  ' + rss.entries[0]['description'] + '.  ' + rss.entries[1]['title'] + '.  ' + rss.entries[1]['description'] + '.  ' + rss.entries[2]['title'] + '.  ' + rss.entries[2]['description'] + '.  ' + rss.entries[3]['title'] + '.  ' + rss.entries[3]['description'] + '.  ' 
+
+# print newsfeed
+
+# Today's news from BBC
+    news = 'And now, The latest stories from the World section of the BBC News.  ' + newsfeed
+
+except rss.bozo:
+    news = 'Failed to reach BBC News'
+
+if Config.get('main','debug') == str(1):
+  print news
+#!/bin/python
+# -*- coding: utf-8 -*-
+import time
+import better_spoken_numbers as bsn
+import ConfigParser
+
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+day_of_month=str(bsn.d2w(int(time.strftime("%d"))))
+
+now = time.strftime("%A %B ") + day_of_month + ',' + time.strftime(" %I %M %p")
+# print now
+
+
+if int(time.strftime("%H")) < 12:
+  period = 'morning'
+if int(time.strftime("%H")) >= 12:
+  period = 'afternoon'
+if int(time.strftime("%H")) >= 17:
+  period = 'evening'
+
+#print time.strftime("%H")
+#print period
+
+# reads out good morning + my name
+gmt = 'Good ' + period + ', '
+
+# reads date and time 
+day = ' it\'s ' + now + '.  '
+
+greeting = gmt + Config.get('greeting','name') + day
+
+if Config.get('main','debug') == str(1):
+  print greeting#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib
+import json
+import decimal
+import ConfigParser
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+urldata=urllib.urlencode({
+  'q':Config.get('currentconditions','location'),
+  'units':Config.get('currentconditions','units'),
+  'cnt': 1
+})
+
+#request_2 = urllib2.Request('http://api.openweathermap.org/data/2.5/forecast/daily?q='+Config.get('forecast','location')+'&units='+Config.get('forecast','units')+'&cnt=1')
+#request_2 = urllib2.Request('http://api.openweathermap.org/data/2.5/forecast/daily?q=NYC&units=imperial&cnt=1')
+
+try: 
+    forecast_api  = urllib.urlopen("http://api.openweathermap.org/data/2.5/forecast/daily?%s" % urldata)
+    response_2 = forecast_api.read()
+    response_2_dictionary = json.loads(response_2)
+
+    todays_low = response_2_dictionary['list'][0]['temp']['night']
+    todays_high = response_2_dictionary['list'][0]['temp']['day']
+
+    todays_cond = response_2_dictionary['list'][0]['weather'][0]['description']
+
+    todays_low = round(todays_low,1)
+    todays_high = round(todays_high,1)
+    
+    #print todays_low
+    #print todays_high
+
+    # reads todayâ€™s forecast weather
+    forecast = ' Todays forcast: ' + str(todays_cond) + ' with a high of ' + str(todays_high) + ' and an overnight low of ' + str(todays_low) + '.  '
+
+except Exception:
+    forecast = 'Failed to connect to Open Weather Map.  '
+
+if Config.get('main','debug') == str(1):
+  print forecast
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib
+import json
+import decimal
+import ConfigParser
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+urldata=urllib.urlencode({
+  'q':Config.get('currentconditions','location'),
+  'units':Config.get('currentconditions','units')
+})
+#request = urllib.Request('http://api.openweathermap.org/data/2.5/weather',urllib.urlencode(urldata))
+#request = urllib2.Request('http://api.openweathermap.org/data/2.5/weather?q=NYC&units=imperial')
+
+try: 
+    weather_api = urllib.urlopen("http://api.openweathermap.org/data/2.5/weather?%s" % urldata)
+    response = weather_api.read()
+    response_dictionary = json.loads(response)
+
+    current = response_dictionary['main']['temp']
+    current_low = response_dictionary['main']['temp_min']
+    current_high = response_dictionary['main']['temp_max']
+    conditions = response_dictionary['weather'][0]['description']
+
+    current = round(current,1)
+    current_low = round(current_low,1)
+    current_high = round(current_high,1)
+    #print current
+    #print current_low
+    #print current_high
+    #print conditions
+
+    # reads current weather
+    currentconditions = 'Weather conditions for today are ' + str(conditions) + ' with a current temperature of ' + str(current) + " degrees. "
+#except urllib2.HTTPError, e:
+#    currentconditions = 'Failed to connect to Open Weather Map.  '
+#except urllib2.URLError, e:
+#    currentconditions = 'Failed to connect to Open Weather Map.  '
+#except Exception:
+#    currentconditions = 'Failed to connect to Open Weather Map.  '
+
+#if Config.get('main','debug') == str(1):
+#  print currentconditions
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib
+import json
+import better_spoken_numbers as bsn
+from math import floor
+import ConfigParser
+Config=ConfigParser.ConfigParser()
+try:
+  Config.read('alarm.config')
+except:
+  raise Exception('Sorry, Failed reading alarm.config file.')
+
+try: 
+    coinbase_api = urllib.urlopen('https://coinbase.com/api/v1/prices/buy')
+    response = coinbase_api.read()
+    response_dictionary = json.loads(response)
+    # reads bit coin value from coinbase
+    btc_price=response_dictionary['subtotal']['amount']
+    whole_price = int(floor(float(btc_price)))
+    decimal_price = int(floor((float(btc_price) - whole_price)*100))
+    btc_price = bsn.n2w(int(whole_price)) + ' dollars'
+    if decimal_price > 0:
+      btc_price += ' and ' + bsn.n2w(int(decimal_price)) + ' cents'
+
+    btc = 'The value of 1 bitcoin is: ' + btc_price + '.  '
+except Exception:
+    btc = 'Failed to connect to coinbase.  '
+
+#print response_dictionary['amount']
+#print response_dictionary['subtotal']['amount']
+
+if Config.get('main','debug') == str(1):
+  print btc
+ó
+µQ+Tc           @   s‰  d  d l  m Z i d d 6d d 6d d 6d d	 6d
+ d 6d d 6d d 6d d 6d d 6d d 6d d 6d d 6d d 6d d 6d d 6d  d! 6d" d# 6d$ d% 6d& d' 6d( d) 6d* d+ 6d, d- 6d. d/ 6d0 d1 6d2 d3 6d4 d5 6d6 d7 6d8 d9 6Z i d: d 6d; d 6d< d	 6d= d 6d> d 6d? d 6d@ d 6dA d 6dB d 6dC d 6dD d 6dE d 6dF d 6dG d 6dH d! 6dI d# 6dJ d% 6dK d' 6dL d) 6dM d+ 6dN d- 6Z dO „  Z dP „  Z dQ S(R   iÿÿÿÿ(   t   floort   Zeroi    t   Onei   t   Twoi   t   Threei   t   Fouri   t   Fivei   t   Sixi   t   Seveni   t   Eighti   t   Ninei	   t   Teni
+   t   Eleveni   t   Twelvei   t   Thirteeni   t   Fourteeni   t   Fifteeni   t   Sixteeni   t	   Seventeeni   t   Eighteeni   t   Nineteeni   t   Twentyi   t   Thirtyi   t   Fortyi(   t   Fiftyi2   t   Sixtyi<   t   SeventyiF   t   EightyiP   t   NinetyiZ   t   Firstt   Secondt   Thirdt   Fourtht   Fiftht   Sixtht   Seventht   Eightht   Nintht   Tentht   Eleventht   Twelftht
+   Thirteentht
+   Fourteentht	   Fifteentht	   Sixteentht   Seventeentht
+   Eighteentht
+   Nineteentht	   Twentietht	   Thirtiethc         C   s¿  |  d k r t  |  S|  d k  r[ t  |  |  d } |  d d k rW | t  |  d 7} n  | S|  d k  rñ |  |  d d } |  d |  d d } |  | d | } t  | d } | d k rÐ | d t  | 7} n  | d k rí | t  | 7} n  | S|  d k  rT|  |  d d } |  | d } t | ƒ d	 } | d k rP| d t | ƒ 7} n  | S|  d
+ k  r·|  |  d d } |  | d } t | ƒ d } | d k r³| d t | ƒ 7} n  | Sd Sd  S(   Ni   id   i
+   i    iè  s    hundredt    i@B s	    thousandi Êš;s    millions   Number out of range(   t	   num2wordst   n2w(   t   nt   wordst   hundredst   tenst   singlest	   thousandst	   remaindert   millions(    (    s'   /home/bananapi/better_spoken_numbers.pyR4      s@    c         C   sY   y t  |  SWnF t k
+ rT y  t |  |  d t  |  d SWqU t k
+ rP d SXn Xd  S(   Ni
+   s   Date out of range(   t
+   date2wordst   KeyErrorR3   (   R5   (    (    s'   /home/bananapi/better_spoken_numbers.pyt   d2w5   s     N(   t   mathR    R3   R=   R4   R?   (    (    (    s'   /home/bananapi/better_spoken_numbers.pyt   <module>   s   -#
+&#	##!/usr/bin/python
+from math import floor
+
+num2words = {0: 'Zero', 1: 'One', 2: 'Two', 3: 'Three', 4: 'Four', 5: 'Five',
+             6: 'Six', 7: 'Seven', 8: 'Eight', 9: 'Nine', 10: 'Ten',
+            11: 'Eleven', 12: 'Twelve', 13: 'Thirteen', 14: 'Fourteen',
+            15: 'Fifteen', 16: 'Sixteen', 17: 'Seventeen', 18: 'Eighteen',
+            19: 'Nineteen', 20: 'Twenty', 30: 'Thirty', 40: 'Forty',
+            50: 'Fifty', 60: 'Sixty', 70: 'Seventy', 80: 'Eighty',
+            90: 'Ninety'}
+
+date2words = {1: 'First', 2: 'Second', 3: 'Third', 4: 'Fourth', 5: 'Fifth',
+            6: 'Sixth', 7: 'Seventh', 8: 'Eighth', 9: 'Ninth', 10: 'Tenth',
+           11: 'Eleventh', 12: 'Twelfth', 13: 'Thirteenth', 14: 'Fourteenth',
+           15: 'Fifteenth', 16: 'Sixteenth', 17: 'Seventeenth', 18: 'Eighteenth',
+           19: 'Nineteenth', 20: 'Twentieth', 30: 'Thirtieth'}
+
+def n2w(n):
+  if n<=20:
+    return num2words[n]
+  elif n<100:
+    words=num2words[n-n%10]
+    if n%10>0:
+      words+=num2words[n%10]
+    return words
+  elif n<1000:
+    hundreds=(n-n%100)/100
+    tens=(n%100)-(n%100)%10
+    singles=n-((hundreds*100)+tens)
+    words=num2words[hundreds] + ' hundred'
+    if tens > 0:
+      words+=' '+num2words[tens]
+    if singles > 0:
+      words+=num2words[singles]
+    return words
+  elif n<1000000:
+    thousands=(n-n%1000)/1000
+    remainder=n-(thousands*1000)
+    words=n2w(thousands)+' thousand'
+    if remainder>0:
+      words+=' '+n2w(remainder)
+    return words
+  elif n<1000000000:
+    millions=(n-n%1000000)/1000000
+    remainder=n-(millions*1000000)
+    words=n2w(millions)+' million'
+    if remainder>0:
+      words+=' '+n2w(remainder)
+    return words
+  else:
+    return 'Number out of range'
+
+def d2w(n):
+  try:
+    return date2words[n]
+  except KeyError:
+    try:
+      return num2words[n-n%10] + date2words[n%10]
+    except KeyError:
+      return 'Date out of range'
+
+
+[main]
+enabled=1
+debug=1
+readaloud=1
+trygoogle=1
+head=wget -q -U Mozilla 
+tail=.mp3 
+end=Thats all for now.  Have a nice day.  
+
+[greeting]
+enabled=1
+name=Peter
+
+[weather_yahoo]
+enabled=1
+location=2459115
+metric=1
+# Change units to Imperial by changing metric=0
+wind=1
+# wind is available only with metric
+wind_chill=1
+# default set from November - March
+
+
+[currentconditions]  # uses OpenWeatherMaps deprecated because of weather_yahoo
+enabled=0
+location=Chapel Hill NC
+units=imperial
+# Change units to metric if you desire
+
+[forecast]  # uses OpenWeatherMaps deprecated because of weather_yahoo
+enabled=0
+location=Chapel Hill NC
+units=imperial
+# Change units to metric if you desire
+
+[btc]
+enabled=1
+
+[stocks]
+enabled=1
+tickers=fb,pot.nz
+
+[news]
+enabled=1
+
+
+
